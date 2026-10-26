@@ -1,0 +1,14 @@
+# Runtime: standard library only (Python 3.10+) for both packages.
+# No third-party packages are needed to run either assignment.
+#
+# Development and testing tools:
+#   pip install -r requirements.txt
+#
+# Before submitting, replace each ">=" with the exact "==" version from
+# `pip freeze` so the grader's environment matches the one you tested.
+
+pytest>=8.0          # test runner
+pytest-timeout>=2.3  # fails a deadlocked test instead of hanging the suite
+pytest-repeat>=0.9   # reruns concurrency tests (--count=50) to surface races
+pytest-cov>=5.0      # coverage report (pytest --cov)
+ruff>=0.6            # linting and PEP 8 checks

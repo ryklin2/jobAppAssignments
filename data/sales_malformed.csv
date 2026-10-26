@@ -1,0 +1,14 @@
+transaction_id,date,region,salesperson,product_category,quantity,unit_price,total_amount
+M001,2026-01-05,West,"Lee, Dana",Electronics,2,49.99,99.98
+M002,2026-02-30,East,Ben Ortiz,Furniture,1,350.00,350.00
+M003,2026-01-07,North,Ana Silva,Office Supplies,three,2.50,7.50
+M004,2026-01-08,South,Raj Patel,Software,-1,99.00,-99.00
+M005,2026-01-09,West,Cara Jones,Electronics,2,100.00,250.00
+M006,2026-01-10,East,Ben Ortiz,Furniture,1,NaN,NaN
+
+M007,2026-01-11,North,Ana Silva
+M008,2026-01-12,South,Raj Patel,Software,1,99.00,99.00,EXTRA
+M001,2026-01-13,West,Cara Jones,Accessories,1,19.99,19.99
+M009,01/14/2026,East,Ben Ortiz,Furniture,1,350.00,350.00
+M010,2026-01-15,,Ana Silva,Office Supplies,4,2.50,10.00
+M011,2026-01-16,South,Raj Patel,Software,1,99.00,99.00
