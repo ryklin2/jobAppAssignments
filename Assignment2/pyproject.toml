@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sales-analytics"
+version = "0.1.0"
+description = "Sales analytics on CSV data using functional programming"
+requires-python = ">=3.10"
+dependencies = []  # standard library only
+
+[tool.setuptools]
+packages = ["sales_analytics"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]   # lets pytest import the package from this folder
+timeout = 10         # pytest-timeout: a deadlocked test fails instead of hanging
+addopts = "-ra"      # list every skip reason in the summary
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["sales_analytics"]
+
+[tool.coverage.run]
+source = ["sales_analytics"]
+branch = true

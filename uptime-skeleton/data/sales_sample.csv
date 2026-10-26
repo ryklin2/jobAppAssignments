@@ -1,0 +1,121 @@
+transaction_id,date,region,salesperson,product_category,quantity,unit_price,total_amount
+T0001,2025-01-01,North,Alice Chen,Software,6,149.00,894.00
+T0002,2025-01-03,East,Hannah Kim,Accessories,11,39.99,439.89
+T0003,2025-01-10,West,Sofia Rossi,Electronics,2,1299.99,2599.98
+T0004,2025-01-12,West,Sofia Rossi,Software,10,59.00,590.00
+T0005,2025-01-15,North,Marcus Reed,Accessories,11,74.95,824.45
+T0006,2025-01-26,East,Hannah Kim,Electronics,3,1299.99,3899.97
+T0007,2025-01-26,South,Priya Shah,Office Supplies,38,5.99,227.62
+T0008,2025-02-03,West,Liam O'Brien,Office Supplies,11,2.49,27.39
+T0009,2025-02-04,South,Priya Shah,Accessories,6,9.99,59.94
+T0010,2025-02-20,East,Omar Haddad,Accessories,9,9.99,89.91
+T0011,2025-03-07,West,Sofia Rossi,Furniture,2,299.00,598.00
+T0012,2025-03-20,East,Omar Haddad,Accessories,8,74.95,599.60
+T0013,2025-03-24,East,Hannah Kim,Electronics,2,1299.99,2599.98
+T0014,2025-03-27,South,Priya Shah,Software,8,149.00,1192.00
+T0015,2025-04-02,West,Liam O'Brien,Accessories,1,74.95,74.95
+T0016,2025-04-03,West,Liam O'Brien,Electronics,1,49.99,49.99
+T0017,2025-04-05,West,Sofia Rossi,Electronics,1,799.00,799.00
+T0018,2025-04-09,East,Hannah Kim,Software,9,59.00,531.00
+T0019,2025-04-11,East,Hannah Kim,Electronics,4,129.99,519.96
+T0020,2025-04-11,North,Marcus Reed,Office Supplies,10,24.99,249.90
+T0021,2025-04-16,South,Priya Shah,Furniture,2,149.50,299.00
+T0022,2025-04-16,East,Hannah Kim,Furniture,2,649.00,1298.00
+T0023,2025-04-24,South,Priya Shah,Furniture,1,649.00,649.00
+T0024,2025-04-30,East,Omar Haddad,Software,8,499.00,3992.00
+T0025,2025-05-02,South,Diego Alvarez,Software,2,149.00,298.00
+T0026,2025-05-04,West,Liam O'Brien,Electronics,1,49.99,49.99
+T0027,2025-05-05,West,Sofia Rossi,Furniture,3,649.00,1947.00
+T0028,2025-05-13,East,Hannah Kim,Accessories,3,39.99,119.97
+T0029,2025-05-25,East,Omar Haddad,Software,2,59.00,118.00
+T0030,2025-05-26,North,Marcus Reed,Software,10,59.00,590.00
+T0031,2025-05-30,North,Marcus Reed,Software,9,149.00,1341.00
+T0032,2025-06-03,East,Hannah Kim,Accessories,2,39.99,79.98
+T0033,2025-07-07,South,Priya Shah,Electronics,1,49.99,49.99
+T0034,2025-07-19,East,Omar Haddad,Electronics,3,49.99,149.97
+T0035,2025-07-23,North,Marcus Reed,Software,5,19.99,99.95
+T0036,2025-07-24,East,Omar Haddad,Electronics,3,349.00,1047.00
+T0037,2025-07-27,South,Diego Alvarez,Accessories,5,74.95,374.75
+T0038,2025-08-04,South,Priya Shah,Accessories,2,9.99,19.98
+T0039,2025-08-17,West,Liam O'Brien,Accessories,2,39.99,79.98
+T0040,2025-08-18,South,Diego Alvarez,Software,6,149.00,894.00
+T0041,2025-08-23,West,Sofia Rossi,Software,7,19.99,139.93
+T0042,2025-09-03,East,Omar Haddad,Software,10,59.00,590.00
+T0043,2025-09-11,West,Sofia Rossi,Office Supplies,28,2.49,69.72
+T0044,2025-09-15,North,Marcus Reed,Office Supplies,27,12.75,344.25
+T0045,2025-09-15,North,Alice Chen,Office Supplies,23,2.49,57.27
+T0046,2025-09-22,East,Omar Haddad,Furniture,2,89.00,178.00
+T0047,2025-09-23,South,Priya Shah,Furniture,3,89.00,267.00
+T0048,2025-09-24,East,Omar Haddad,Electronics,1,1299.99,1299.99
+T0049,2025-09-30,South,Diego Alvarez,Electronics,1,1299.99,1299.99
+T0050,2025-10-03,South,Diego Alvarez,Accessories,9,24.50,220.50
+T0051,2025-10-22,East,Omar Haddad,Software,1,149.00,149.00
+T0052,2025-10-22,South,Priya Shah,Software,6,59.00,354.00
+T0053,2025-10-25,South,Priya Shah,Office Supplies,20,24.99,499.80
+T0054,2025-10-27,South,Priya Shah,Electronics,2,129.99,259.98
+T0055,2025-10-29,North,Alice Chen,Software,5,499.00,2495.00
+T0056,2025-11-12,East,Hannah Kim,Electronics,1,49.99,49.99
+T0057,2025-11-13,North,Marcus Reed,Software,7,499.00,3493.00
+T0058,2025-11-18,North,Marcus Reed,Furniture,3,149.50,448.50
+T0059,2025-11-21,South,Diego Alvarez,Electronics,1,1299.99,1299.99
+T0060,2025-11-24,North,Marcus Reed,Furniture,1,299.00,299.00
+T0061,2025-12-15,North,Alice Chen,Electronics,1,799.00,799.00
+T0062,2025-12-23,West,Liam O'Brien,Software,7,59.00,413.00
+T0063,2026-01-01,East,Omar Haddad,Electronics,3,1299.99,3899.97
+T0064,2026-01-04,East,Omar Haddad,Electronics,3,349.00,1047.00
+T0065,2026-01-08,West,Sofia Rossi,Office Supplies,24,24.99,599.76
+T0066,2026-01-13,West,Liam O'Brien,Electronics,2,799.00,1598.00
+T0067,2026-01-15,West,Sofia Rossi,Accessories,9,39.99,359.91
+T0068,2026-01-21,South,Priya Shah,Accessories,2,24.50,49.00
+T0069,2026-02-11,North,Marcus Reed,Furniture,1,299.00,299.00
+T0070,2026-02-12,South,Diego Alvarez,Accessories,12,24.50,294.00
+T0071,2026-02-13,North,Marcus Reed,Software,7,19.99,139.93
+T0072,2026-02-16,South,Priya Shah,Software,9,59.00,531.00
+T0073,2026-02-16,South,Diego Alvarez,Accessories,12,24.50,294.00
+T0074,2026-02-26,South,Priya Shah,Furniture,2,299.00,598.00
+T0075,2026-03-07,North,Alice Chen,Software,3,59.00,177.00
+T0076,2026-03-07,North,Marcus Reed,Furniture,2,299.00,598.00
+T0077,2026-03-09,East,Hannah Kim,Office Supplies,5,5.99,29.95
+T0078,2026-03-12,West,Sofia Rossi,Office Supplies,39,12.75,497.25
+T0079,2026-03-12,East,Hannah Kim,Software,3,19.99,59.97
+T0080,2026-03-16,East,Omar Haddad,Software,3,59.00,177.00
+T0081,2026-03-20,North,Alice Chen,Accessories,6,9.99,59.94
+T0082,2026-03-21,South,Diego Alvarez,Furniture,1,299.00,299.00
+T0083,2026-03-25,East,Hannah Kim,Software,3,59.00,177.00
+T0084,2026-03-28,South,Diego Alvarez,Furniture,1,649.00,649.00
+T0085,2026-04-06,South,Diego Alvarez,Office Supplies,24,12.75,306.00
+T0086,2026-04-06,South,Diego Alvarez,Furniture,2,649.00,1298.00
+T0087,2026-04-08,South,Diego Alvarez,Software,6,59.00,354.00
+T0088,2026-04-09,West,Sofia Rossi,Software,2,149.00,298.00
+T0089,2026-04-13,South,Diego Alvarez,Accessories,5,74.95,374.75
+T0090,2026-04-14,North,Marcus Reed,Electronics,3,129.99,389.97
+T0091,2026-04-14,South,Priya Shah,Software,6,149.00,894.00
+T0092,2026-04-15,West,Sofia Rossi,Office Supplies,16,12.75,204.00
+T0093,2026-04-18,West,Liam O'Brien,Office Supplies,27,5.99,161.73
+T0094,2026-04-23,East,Omar Haddad,Office Supplies,18,24.99,449.82
+T0095,2026-04-26,East,Hannah Kim,Office Supplies,32,5.99,191.68
+T0096,2026-04-27,North,Marcus Reed,Furniture,2,89.00,178.00
+T0097,2026-05-06,North,Marcus Reed,Office Supplies,14,12.75,178.50
+T0098,2026-05-06,North,Marcus Reed,Electronics,2,349.00,698.00
+T0099,2026-05-06,South,Diego Alvarez,Furniture,3,299.00,897.00
+T0100,2026-05-09,West,Sofia Rossi,Office Supplies,6,24.99,149.94
+T0101,2026-05-13,East,Omar Haddad,Office Supplies,11,12.75,140.25
+T0102,2026-05-17,West,Sofia Rossi,Software,7,59.00,413.00
+T0103,2026-05-18,East,Omar Haddad,Furniture,2,89.00,178.00
+T0104,2026-05-18,East,Hannah Kim,Accessories,9,39.99,359.91
+T0105,2026-05-18,North,Marcus Reed,Electronics,4,349.00,1396.00
+T0106,2026-05-25,West,Sofia Rossi,Office Supplies,5,12.75,63.75
+T0107,2026-05-26,North,Alice Chen,Electronics,3,49.99,149.97
+T0108,2026-05-26,East,Omar Haddad,Accessories,8,24.50,196.00
+T0109,2026-05-29,North,Marcus Reed,Software,2,149.00,298.00
+T0110,2026-05-30,West,Liam O'Brien,Software,2,19.99,39.98
+T0111,2026-06-03,East,Hannah Kim,Furniture,2,149.50,299.00
+T0112,2026-06-08,West,Liam O'Brien,Software,5,59.00,295.00
+T0113,2026-06-09,South,Diego Alvarez,Software,9,499.00,4491.00
+T0114,2026-06-10,East,Hannah Kim,Accessories,5,9.99,49.95
+T0115,2026-06-10,South,Priya Shah,Accessories,9,24.50,220.50
+T0116,2026-06-12,West,Liam O'Brien,Office Supplies,26,12.75,331.50
+T0117,2026-06-15,East,Omar Haddad,Furniture,2,649.00,1298.00
+T0118,2026-06-20,West,Sofia Rossi,Furniture,1,299.00,299.00
+T0119,2026-06-20,West,Sofia Rossi,Electronics,4,49.99,199.96
+T0120,2026-06-22,East,Omar Haddad,Furniture,1,649.00,649.00

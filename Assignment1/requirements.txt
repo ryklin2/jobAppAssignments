@@ -1,0 +1,11 @@
+# Runtime: standard library only (Python 3.10+). No third-party packages
+# are needed to run this assignment.
+#
+# Development and testing tools, pinned to the versions it was tested with:
+#   python -m pip install -r requirements.txt
+
+pytest==9.1.1          # test runner
+pytest-timeout==2.4.0  # fails a deadlocked test instead of hanging the suite
+pytest-repeat==0.9.4   # reruns tests (--count=50) to surface races
+pytest-cov==7.1.0      # coverage report
+ruff==0.17.2           # linting and PEP 8 checks
