@@ -3,11 +3,9 @@
 from threading import Event
 
 from producer_consumer.containers import SourceContainer
+from producer_consumer.exceptions import QueueClosedError, QueueFullError
 from producer_consumer.item import Item
 from producer_consumer.shared_queue import SharedQueue
-
-# Suggested imports for the implementation:
-#   from producer_consumer.exceptions import QueueClosedError, QueueFullError
 
 
 class Producer:
@@ -54,12 +52,22 @@ class Producer:
         Raises:
             ValueError: If ``poll_interval`` <= 0 or ``delay`` < 0.
         """
-        raise NotImplementedError
+        if poll_interval <= 0:
+            raise ValueError(f"poll_interval must be > 0, got {poll_interval}")
+        if delay < 0:
+            raise ValueError(f"delay must be >= 0, got {delay}")
+
+        self._source = source_container
+        self._queue = shared_queue
+        self._stop_event = stop_event
+        self._name = name
+        self._poll_interval = poll_interval
+        self._delay = delay
 
     @property
     def name(self) -> str:
         """The producer's name."""
-        raise NotImplementedError
+        return self._name
 
     def run(self) -> None:
         """Enqueue items until the source empties, a stop arrives, or the queue closes.
@@ -77,7 +85,20 @@ class Producer:
         An item taken but not enqueued because of a stop is not transferred;
         ``TransferResult.undelivered`` accounts for it.
         """
-        raise NotImplementedError
+        try:
+            while not self._stop_event.is_set():
+                item = self._source.take()
+                if item is None:
+                    return  # Source exhausted: this producer's work is done.
+                if not self._enqueue_with_retry(item):
+                    return  # Stopped while waiting for space.
+                if self._delay > 0:
+                    # Event.wait, never time.sleep: a stop cuts the pause short.
+                    self._stop_event.wait(self._delay)
+        except QueueClosedError:
+            # Another worker failed or the transfer was aborted. Not an error
+            # for this producer; the manager reports the real cause.
+            return
 
     def _enqueue_with_retry(self, item: Item) -> bool:
         """Enqueue ``item``, retrying each timed-out attempt until stopped.
@@ -92,4 +113,13 @@ class Producer:
         Raises:
             QueueClosedError: If the queue is closed (handled in ``run()``).
         """
-        raise NotImplementedError
+        while not self._stop_event.is_set():
+            try:
+                self._queue.enqueue(item, timeout=self._poll_interval)
+            except QueueFullError:
+                # Only this attempt timed out. Re-check the stop event and
+                # try again; this is what bounds how long a blocked producer
+                # can ignore a stop request.
+                continue
+            return True
+        return False

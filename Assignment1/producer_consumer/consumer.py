@@ -3,10 +3,8 @@
 from threading import Event
 
 from producer_consumer.containers import DestinationContainer
+from producer_consumer.exceptions import QueueClosedError, QueueEmptyError
 from producer_consumer.shared_queue import SharedQueue
-
-# Suggested imports for the implementation:
-#   from producer_consumer.exceptions import QueueClosedError, QueueEmptyError
 
 
 class Consumer:
@@ -53,12 +51,22 @@ class Consumer:
         Raises:
             ValueError: If ``poll_interval`` <= 0 or ``delay`` < 0.
         """
-        raise NotImplementedError
+        if poll_interval <= 0:
+            raise ValueError(f"poll_interval must be > 0, got {poll_interval}")
+        if delay < 0:
+            raise ValueError(f"delay must be >= 0, got {delay}")
+
+        self._queue = shared_queue
+        self._destination = destination_container
+        self._stop_event = stop_event
+        self._name = name
+        self._poll_interval = poll_interval
+        self._delay = delay
 
     @property
     def name(self) -> str:
         """The consumer's name."""
-        raise NotImplementedError
+        return self._name
 
     def run(self) -> None:
         """Deliver items until the closed queue is drained or a stop arrives.
@@ -74,4 +82,20 @@ class Consumer:
             2. ``destination.add(item)``, always, even if a stop is now set.
             3. If ``delay`` > 0: ``stop_event.wait(delay)``.
         """
-        raise NotImplementedError
+        while not self._stop_event.is_set():
+            try:
+                item = self._queue.dequeue(timeout=self._poll_interval)
+            except QueueEmptyError:
+                # Nothing available yet. Re-check the stop event and retry;
+                # this bounds how long a blocked consumer ignores a stop.
+                continue
+            except QueueClosedError:
+                # Closed AND drained: every produced item has been handled.
+                return
+
+            # Deliver unconditionally. The item is already out of the queue,
+            # so bailing out here would silently lose it.
+            self._destination.add(item)
+
+            if self._delay > 0:
+                self._stop_event.wait(self._delay)

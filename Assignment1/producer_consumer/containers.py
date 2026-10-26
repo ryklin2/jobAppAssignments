@@ -1,10 +1,9 @@
 """Thread-safe containers that supply items to producers and collect them."""
 
 from collections.abc import Iterable
+from threading import Lock
 
 from producer_consumer.item import Item
-
-# Suggested import for the implementation: from threading import Lock
 
 
 class SourceContainer:
@@ -34,12 +33,24 @@ class SourceContainer:
                 what let the manager and the tests prove that nothing was
                 lost or duplicated.
         """
-        raise NotImplementedError
+        snapshot = tuple(items)
+        for item in snapshot:
+            if not isinstance(item, Item):
+                raise TypeError(
+                    f"every element must be an Item, got {type(item).__name__}"
+                )
+        ids = {item.id for item in snapshot}
+        if len(ids) != len(snapshot):
+            raise ValueError("item ids must be unique")
+
+        self._items = snapshot
+        self._next_index = 0
+        self._lock = Lock()
 
     @property
     def total(self) -> int:
         """Number of items the source started with (immutable; no lock)."""
-        raise NotImplementedError
+        return len(self._items)
 
     @property
     def remaining(self) -> int:
@@ -49,7 +60,8 @@ class SourceContainer:
         decide whether to call ``take()`` (check-then-act race); call
         ``take()`` and check for ``None`` instead.
         """
-        raise NotImplementedError
+        with self._lock:
+            return len(self._items) - self._next_index
 
     def take(self) -> Item | None:
         """Hand out the next item, or ``None`` once every item has been taken.
@@ -58,7 +70,15 @@ class SourceContainer:
             The next item in original order, or ``None`` when exhausted.
             Every later call also returns ``None``.
         """
-        raise NotImplementedError
+        with self._lock:
+            # Read-and-advance must be one atomic step. Splitting it would
+            # let two producers read the same index and hand out the same
+            # item twice; `index += 1` is not atomic on its own either.
+            if self._next_index >= len(self._items):
+                return None
+            item = self._items[self._next_index]
+            self._next_index += 1
+            return item
 
 
 class DestinationContainer:
@@ -74,7 +94,8 @@ class DestinationContainer:
 
     def __init__(self) -> None:
         """Create an empty destination."""
-        raise NotImplementedError
+        self._items: list[Item] = []
+        self._lock = Lock()
 
     def add(self, item: Item) -> None:
         """Store a delivered item.
@@ -82,20 +103,26 @@ class DestinationContainer:
         Raises:
             TypeError: If ``item`` is not an ``Item``.
         """
-        raise NotImplementedError
+        if not isinstance(item, Item):
+            raise TypeError(f"item must be an Item, got {type(item).__name__}")
+        with self._lock:
+            self._items.append(item)
 
     @property
     def count(self) -> int:
         """Number of items delivered so far (a snapshot)."""
-        raise NotImplementedError
+        with self._lock:
+            return len(self._items)
 
     def snapshot(self) -> tuple[Item, ...]:
         """Return an immutable copy of the delivered items, in delivery order."""
-        raise NotImplementedError
+        with self._lock:
+            return tuple(self._items)
 
     def ids(self) -> frozenset[int]:
         """Return the ids of all delivered items.
 
         ``len(snapshot()) != len(ids())`` means an item was delivered twice.
         """
-        raise NotImplementedError
+        with self._lock:
+            return frozenset(item.id for item in self._items)

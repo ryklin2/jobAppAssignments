@@ -10,7 +10,12 @@ from producer_consumer.item import Item
 
 @pytest.fixture
 def fast_switching() -> Iterator[None]:
-    """Force a thread switch roughly every microsecond to surface races."""
+    """Force a thread switch roughly every microsecond to surface races.
+
+    The default 5ms switch interval lets a thread run so long that a
+    missing lock often goes unnoticed. Shrinking it makes the interleavings
+    that break a racy implementation far more likely within one test run.
+    """
     original = sys.getswitchinterval()
     sys.setswitchinterval(1e-6)
     try:
