@@ -243,3 +243,66 @@ def test_main_exits_with_the_run_exit_code(monkeypatch: pytest.MonkeyPatch) -> N
     with pytest.raises(SystemExit) as caught:
         main()
     assert caught.value.code == EXIT_FAILED
+
+
+def test_main_survives_a_stop_that_times_out(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A stop that fails while handling an error must not escape run().
+
+    Otherwise the summary is skipped and the process exits on a traceback
+    instead of the documented EXIT_FAILED.
+    """
+    cause = RuntimeError("worker exploded")
+
+    def fail(self: DataTransferManager, timeout: float | None = None) -> object:
+        raise TransferFailedError("worker consumer-1 failed") from cause
+
+    def refuse_to_stop(
+        self: DataTransferManager, timeout: float | None = 5.0
+    ) -> object:
+        raise TransferTimeoutError("stop timed out too")
+
+    monkeypatch.setattr(DataTransferManager, "wait_for_completion", fail)
+    monkeypatch.setattr(DataTransferManager, "stop_transfer", refuse_to_stop)
+
+    assert run(FAST_DEMO) == EXIT_FAILED
+    captured = capsys.readouterr()
+    # The summary still ran, and the original cause is still reported.
+    assert "Delivered:" in captured.out
+    assert "worker exploded" in captured.err
+
+
+def test_main_reports_an_interrupt_during_start(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Ctrl-C while the threads are starting is an interrupt, not a traceback."""
+    real_start = DataTransferManager.start_transfer
+
+    def interrupt_on_start(self: DataTransferManager) -> None:
+        real_start(self)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(DataTransferManager, "start_transfer", interrupt_on_start)
+    assert run(FAST_DEMO) == EXIT_INTERRUPTED
+    assert "Interrupted." in capsys.readouterr().out
+    assert not _worker_threads(), "the interrupt left a thread running"
+
+
+def test_main_reports_a_teardown_failure_after_a_clean_run(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A stop that fails only during teardown is reported, not a traceback."""
+
+    def refuse_to_stop(
+        self: DataTransferManager, timeout: float | None = 5.0
+    ) -> object:
+        raise TransferTimeoutError("teardown stop timed out")
+
+    # wait_for_completion still succeeds; only the context-manager exit fails.
+    monkeypatch.setattr(DataTransferManager, "stop_transfer", refuse_to_stop)
+
+    assert run(FAST_DEMO) == EXIT_FAILED
+    captured = capsys.readouterr()
+    assert "Delivered:   20/20" in captured.out
+    assert "teardown stop timed out" in captured.err

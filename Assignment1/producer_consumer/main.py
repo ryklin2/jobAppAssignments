@@ -103,18 +103,38 @@ def run(argv: Sequence[str] | None = None) -> int:
 
     # Both context managers guarantee the worker threads and the monitor
     # thread are joined on every exit path, including Ctrl-C.
-    with manager, StatusMonitor(manager, interval=args.interval):
-        manager.start_transfer()
-        try:
-            result = manager.wait_for_completion(timeout=args.timeout)
-        except KeyboardInterrupt:
-            result = manager.stop_transfer()
-            exit_code = EXIT_INTERRUPTED
-        except (TransferFailedError, TransferTimeoutError) as failure:
-            error = failure
-            # The transfer is already terminal after a failure, so this just
-            # collects the final numbers; after a timeout it aborts the run.
-            result = manager.stop_transfer()
+    result = TransferResult(
+        state=manager.state,
+        total_items=len(items),
+        delivered=0,
+        elapsed_seconds=0.0,
+    )
+
+    try:
+        with manager, StatusMonitor(manager, interval=args.interval):
+            try:
+                # start_transfer is inside the try as well, so a Ctrl-C that
+                # lands while the threads are starting is still reported as
+                # an interrupt rather than a traceback.
+                manager.start_transfer()
+                result = manager.wait_for_completion(timeout=args.timeout)
+            except KeyboardInterrupt:
+                result = _stop_quietly(manager, len(items))
+                exit_code = EXIT_INTERRUPTED
+            except (TransferFailedError, TransferTimeoutError) as failure:
+                error = failure
+                # The transfer is already terminal after a failure, so this
+                # just collects the final numbers; after a timeout it aborts
+                # the run.
+                result = _stop_quietly(manager, len(items))
+                exit_code = EXIT_FAILED
+    except TransferError as teardown_failure:
+        # Raised while the context managers were shutting down. The demo
+        # still owes the user a summary and an exit code, so report it
+        # rather than exiting on a traceback. A failure already in hand is
+        # the more informative one, so it wins.
+        if error is None:
+            error = teardown_failure
             exit_code = EXIT_FAILED
 
     # Printed after the `with` block so the monitor's final status line does
@@ -130,6 +150,26 @@ def run(argv: Sequence[str] | None = None) -> int:
     if exit_code == EXIT_OK and not result.succeeded:
         return EXIT_FAILED
     return exit_code
+
+
+def _stop_quietly(manager: DataTransferManager, total_items: int) -> TransferResult:
+    """Abort the transfer and return its result, even if the stop times out.
+
+    Called from an exception handler, where a ``TransferTimeoutError`` from
+    the stop itself would escape ``run()`` and hide the error being
+    reported. A status snapshot is the fallback, so there is always
+    something to summarize.
+    """
+    try:
+        return manager.stop_transfer()
+    except TransferError:
+        status = manager.get_queue_status()
+        return TransferResult(
+            state=status.state,
+            total_items=total_items,
+            delivered=status.delivered,
+            elapsed_seconds=status.elapsed_seconds,
+        )
 
 
 def _print_summary(

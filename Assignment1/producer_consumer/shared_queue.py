@@ -4,6 +4,11 @@ This is deliberately not ``queue.Queue``: the assignment is about showing the
 synchronization explicitly. The design is the classic bounded-buffer monitor.
 """
 
+# Annotations are deferred, so `Lock | None` is never evaluated at runtime.
+# On Python 3.10-3.12 `threading.Lock` is a factory function rather than a
+# type, and evaluating that union raises TypeError at import time.
+from __future__ import annotations
+
 from collections import deque
 from dataclasses import dataclass
 from threading import Condition, Lock
@@ -240,19 +245,6 @@ class SharedQueue:
             # Every waiter's predicate has changed, so wake all of them.
             self._not_full.notify_all()
             self._not_empty.notify_all()
-
-    def drain(self) -> tuple[Item, ...]:
-        """Remove and return every held item, oldest first.
-
-        Used after a stop to report what was still in flight. Counted as
-        dequeues, so ``size == enqueued - dequeued`` keeps holding.
-        """
-        with self._lock:
-            items = tuple(self._items)
-            self._items.clear()
-            self._dequeued += len(items)
-            self._not_full.notify_all()
-            return items
 
     # -------------------------------------------------- predicates (lock is held)
 

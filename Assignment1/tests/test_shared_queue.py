@@ -354,22 +354,6 @@ def test_close_wakes_every_waiter(make_items: Callable[[int], list[Item]]) -> No
     assert all(woken.acquire(blocking=False) for _ in threads)
 
 
-def test_drain_returns_held_items_and_keeps_counters_consistent(
-    make_items: Callable[[int], list[Item]],
-) -> None:
-    """drain() empties the queue, counting the items as dequeued."""
-    queue = SharedQueue(capacity=5)
-    items = make_items(3)
-    for item in items:
-        queue.enqueue(item)
-
-    assert queue.drain() == tuple(items)
-    snapshot = queue.status()
-    assert snapshot.size == 0
-    assert snapshot.size == snapshot.enqueued - snapshot.dequeued
-    assert queue.drain() == ()
-
-
 def test_repr_mentions_size_and_capacity() -> None:
     """repr() is useful in a failing assertion."""
     assert "capacity=10" in repr(SharedQueue())

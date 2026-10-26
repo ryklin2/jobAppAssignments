@@ -68,7 +68,7 @@ producer_consumer/
     exceptions.py      exception hierarchy
     main.py            demo entry point
 docs/SYNCHRONIZATION.md  synchronization strategy and thread-safety guarantees
-tests/                   pytest suite (141 tests)
+tests/                   pytest suite (153 tests)
 ```
 
 ## Sample output

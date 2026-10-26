@@ -153,11 +153,17 @@ The system fails fast rather than hanging:
   what prevents the obvious deadlock: if the only consumer dies, producers
   blocked on a full queue would otherwise wait for a consumer that no longer
   exists.
-- `wait_for_completion()` drains the channel with `get_nowait()` until
+- `wait_for_completion()` empties the channel with `get_nowait()` until
   `queue.Empty` (never looping on `Queue.empty()`, which is only a hint and
   can race), sets the state to `FAILED`, and re-raises the first failure as
   `TransferFailedError` with the original exception as `__cause__`, so the
   real traceback survives.
+- Draining is destructive, so collected failures are also **recorded** on the
+  manager. Without that, a second `wait_for_completion()` would report
+  success for a transfer that had failed. For the same reason
+  `stop_transfer()` collects failures too and reports `FAILED` rather than
+  `STOPPED` when a worker had already crashed — a stop must not bury the
+  real cause.
 - The queue's own `QueueClosedError` is *not* a failure. A producer that
   finds the queue closed returns normally; the manager reports the actual
   cause.
@@ -194,7 +200,7 @@ is on a condition whose predicate includes `closed`.
 | `DestinationContainer` | Fully thread-safe. `add()` is safe from any number of consumers; readers take the same lock and return immutable snapshots, so no caller sees the list mid-update. |
 | `Producer` / `Consumer` | One instance must be run by one thread at a time; they hold no lock of their own. Any number of instances may share one source, queue and destination. They own no thread, which is what lets a test call `run()` directly. |
 | `DataTransferManager` | Public methods are safe from any thread **except** its own workers, which must not call them (`wait_for_completion` and `stop_transfer` join the workers, and a thread cannot join itself; `_join_workers` skips the current thread defensively). Single use: Python threads cannot be restarted, so a finished manager refuses `start_transfer()`. |
-| `StatusMonitor` | `start()` and `stop()` are meant for one controlling thread (normally main); `stop()` is idempotent and `start()` twice raises. The monitor thread only reads through `manager.get_queue_status()`, so it adds no new sharing. It is the only thread that prints, which is why status lines never interleave. |
+| `StatusMonitor` | `start()` and `stop()` are meant for one controlling thread (normally main); `stop()` is idempotent and returns whether the thread actually exited, keeping it joinable if not. Single use, like the manager: `start()` raises once the monitor has been started, including after a stop, since its stop Event is set and a thread cannot be restarted. The monitor thread only reads through `manager.get_queue_status()`, so it adds no new sharing. It is the only thread that prints, which is why status lines never interleave. |
 
 ## 9. Known limitations
 
@@ -222,3 +228,12 @@ is on a condition whose predicate includes `closed`.
 - **Unbounded error channel.** The `queue.Queue` of failures has no maximum
   size. With one failure per worker thread that is bounded in practice by
   the worker count.
+- **A wedged thread cannot be joined away.** `stop_transfer()` and
+  `StatusMonitor.stop()` both report a thread they could not join (by
+  exception and by return value respectively) and keep it joinable, rather
+  than abandoning a live non-daemon thread that would stop the process from
+  exiting. Neither can force it to end.
+- **Thread startup is not transactional.** If the OS refuses a thread partway
+  through `start_transfer()`, the manager corrects its active-producer count,
+  closes the queue, marks the transfer `FAILED` and re-raises, rather than
+  leaving consumers waiting on producers that will never run.

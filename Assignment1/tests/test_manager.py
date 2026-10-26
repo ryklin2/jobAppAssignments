@@ -1,5 +1,6 @@
 """Tests for DataTransferManager: lifecycle, termination, failures."""
 
+import contextlib
 import threading
 import time
 from collections.abc import Callable
@@ -514,3 +515,189 @@ def test_stop_timeout_raises_when_a_worker_will_not_exit(
         while worker_threads() and time.monotonic() < deadline:
             time.sleep(0.01)
     assert not worker_threads(), "the released worker never exited"
+
+
+def test_repeated_wait_keeps_reporting_a_failure(
+    make_items: Callable[[int], list[Item]],
+) -> None:
+    """wait_for_completion() re-raises on every call, not just the first.
+
+    Draining the error channel is destructive, so the failures have to be
+    recorded; otherwise a second call reports success for a failed transfer.
+    """
+    manager = DataTransferManager(
+        SourceContainer(make_items(30)),
+        FailingDestination(fail_after=2),
+        poll_interval=POLL,
+    )
+    manager.start_transfer()
+    for attempt in range(3):
+        with pytest.raises(TransferFailedError) as caught:
+            manager.wait_for_completion(timeout=TIMING_SLACK * 2)
+        assert isinstance(caught.value.__cause__, RuntimeError), f"attempt {attempt}"
+    assert manager.state is TransferState.FAILED
+
+
+def test_stop_after_a_failure_reports_failed_not_stopped(
+    make_items: Callable[[int], list[Item]],
+) -> None:
+    """A crashed worker is the real outcome, so a stop must not mask it as STOPPED."""
+    manager = DataTransferManager(
+        SourceContainer(make_items(200)),
+        FailingDestination(fail_after=3),
+        capacity=5,
+        num_producers=2,
+        num_consumers=1,
+        poll_interval=POLL,
+    )
+    manager.start_transfer()
+    # Give the consumer time to fail before the stop lands.
+    time.sleep(POLL * 4)
+    result = manager.stop_transfer(timeout=TIMING_SLACK * 2)
+
+    assert result.state is TransferState.FAILED
+    assert manager.state is TransferState.FAILED
+    assert not result.succeeded
+    # The failure is still reportable, so the cause is not lost.
+    with pytest.raises(TransferFailedError) as caught:
+        manager.wait_for_completion(timeout=TIMING_SLACK)
+    assert isinstance(caught.value.__cause__, RuntimeError)
+    assert not worker_threads()
+
+
+def test_context_manager_does_not_mask_the_body_exception(
+    make_items: Callable[[int], list[Item]],
+) -> None:
+    """A stop that fails during teardown must not replace the body's exception."""
+
+    class StubbornManager(DataTransferManager):
+        def stop_transfer(self, timeout: float | None = 5.0) -> object:
+            raise TransferTimeoutError("teardown timed out")
+
+    manager = StubbornManager(
+        SourceContainer(make_items(5)), DestinationContainer(), poll_interval=POLL
+    )
+    # The body's ZeroDivisionError must survive, not the teardown timeout.
+    with pytest.raises(ZeroDivisionError), manager:
+        raise ZeroDivisionError("the real cause")
+
+    # With nothing in flight, a teardown failure is still reported.
+    clean = StubbornManager(
+        SourceContainer(make_items(5)), DestinationContainer(), poll_interval=POLL
+    )
+    with pytest.raises(TransferTimeoutError), clean:
+        pass
+
+
+def test_concurrent_stop_during_start_does_not_wedge_the_manager(
+    make_items: Callable[[int], list[Item]], fast_switching: None
+) -> None:
+    """A stop racing start_transfer() never joins an unstarted thread.
+
+    Threads are started under the manager lock, so no other thread can see
+    RUNNING with threads that have not been started; joining one of those
+    raises RuntimeError and would wedge the manager permanently.
+    """
+    for _ in range(25):
+        manager = DataTransferManager(
+            SourceContainer(make_items(20)),
+            DestinationContainer(),
+            num_producers=3,
+            num_consumers=3,
+            poll_interval=POLL,
+        )
+        errors: list[BaseException] = []
+
+        def stopper(
+            target: DataTransferManager = manager,
+            sink: list[BaseException] = errors,
+        ) -> None:
+            try:
+                target.stop_transfer(timeout=TIMING_SLACK)
+            except BaseException as error:  # noqa: BLE001 - recorded below
+                sink.append(error)
+
+        thread = threading.Thread(target=stopper, name="stopper")
+        thread.start()
+        # The stopper may legitimately win and move the manager to STOPPED
+        # before this call; that is a refused start, not a defect.
+        with contextlib.suppress(TransferStateError):
+            manager.start_transfer()
+        thread.join(TIMING_SLACK)
+        manager.stop_transfer(timeout=TIMING_SLACK)
+
+        # The failure this guards against is RuntimeError("cannot join
+        # thread before it is started") escaping from stop_transfer().
+        assert not errors, f"stop raced with start: {errors!r}"
+        assert manager.state.is_terminal
+    assert not worker_threads()
+
+
+def test_thread_start_failure_rolls_back_and_does_not_hang(
+    make_items: Callable[[int], list[Item]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If the OS refuses a thread partway, the transfer aborts instead of hanging.
+
+    Without the rollback the active-producer count would never reach zero,
+    so the queue would never close and the started consumers would wait for
+    producers that will never run.
+    """
+    real_start = threading.Thread.start
+    calls = {"n": 0}
+
+    def start_but_fail_on_the_third(self: threading.Thread) -> None:
+        calls["n"] += 1
+        if calls["n"] == 3:
+            raise RuntimeError("can't start new thread")
+        real_start(self)
+
+    monkeypatch.setattr(threading.Thread, "start", start_but_fail_on_the_third)
+
+    manager = DataTransferManager(
+        SourceContainer(make_items(20)),
+        DestinationContainer(),
+        num_producers=2,
+        num_consumers=2,
+        poll_interval=POLL,
+    )
+    with pytest.raises(RuntimeError, match="can't start new thread"):
+        manager.start_transfer()
+
+    monkeypatch.undo()
+    assert manager.state is TransferState.FAILED
+    # The queue was closed, so the consumers that did start could exit.
+    assert manager.shared_queue.closed
+    # And the already-started threads are joinable: no hang, no RuntimeError
+    # from joining the ones that never started.
+    result = manager.stop_transfer(timeout=TIMING_SLACK * 2)
+    assert result.state is TransferState.FAILED
+    deadline = time.monotonic() + TIMING_SLACK * 2
+    while worker_threads() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not worker_threads(), "a started worker was left running"
+
+
+def test_joining_skips_threads_that_were_never_started(
+    make_items: Callable[[int], list[Item]],
+) -> None:
+    """A never-started thread is skipped, not joined.
+
+    `Thread.join()` before `start()` raises RuntimeError, which would wedge
+    the manager. Reachable via the start-failure rollback above.
+    """
+    manager = DataTransferManager(
+        SourceContainer(make_items(5)),
+        DestinationContainer(),
+        num_producers=1,
+        num_consumers=1,
+        poll_interval=POLL,
+    )
+    with manager._lock:
+        manager._state = TransferState.RUNNING
+        manager._producer_threads = [
+            threading.Thread(target=lambda: None, name="producer-1")
+        ]
+        manager._consumer_threads = []
+
+    result = manager.stop_transfer(timeout=1)
+    assert result.state is TransferState.STOPPED

@@ -1,6 +1,7 @@
 """Tests for format_status and StatusMonitor."""
 
 import threading
+import time
 from collections.abc import Callable
 
 import pytest
@@ -13,6 +14,11 @@ from producer_consumer.status import QueueStatus, TransferState
 
 TIMING_SLACK = 5.0
 POLL = 0.05
+
+
+def _monitor_threads() -> list[threading.Thread]:
+    """Every live status-monitor thread."""
+    return [t for t in threading.enumerate() if t.name == "status-monitor"]
 
 
 def make_status(**overrides: object) -> QueueStatus:
@@ -169,3 +175,80 @@ def test_monitor_rejects_invalid_interval(interval: float) -> None:
     manager = DataTransferManager(SourceContainer([]), DestinationContainer())
     with pytest.raises(ValueError):
         StatusMonitor(manager, interval=interval)
+
+
+def test_monitor_cannot_be_restarted_after_a_stop(
+    make_items: Callable[[int], list[Item]],
+) -> None:
+    """start() after stop() raises instead of yielding a dead monitor.
+
+    The stop Event stays set and a Python thread cannot be restarted, so a
+    silent restart would emit one line and exit.
+    """
+    manager = DataTransferManager(
+        SourceContainer(make_items(5)), DestinationContainer(), poll_interval=POLL
+    )
+    lines: list[str] = []
+    monitor = StatusMonitor(manager, interval=0.02, sink=lines.append)
+    monitor.start()
+    monitor.stop(timeout=TIMING_SLACK)
+    emitted = len(lines)
+
+    with pytest.raises(RuntimeError):
+        monitor.start()
+
+    # Nothing new was started, so no further lines appear.
+    time.sleep(0.1)
+    assert len(lines) == emitted
+    assert not _monitor_threads()
+
+
+def test_monitor_stop_reports_a_thread_it_could_not_join(
+    make_items: Callable[[int], list[Item]],
+) -> None:
+    """stop() returns False and keeps the thread joinable when the join times out.
+
+    Dropping the reference would abandon a live non-daemon thread, which
+    keeps the whole process from exiting, while reporting success.
+    """
+    manager = DataTransferManager(
+        SourceContainer(make_items(5)), DestinationContainer(), poll_interval=POLL
+    )
+    release = threading.Event()
+
+    def wedged_sink(line: str) -> None:
+        release.wait(TIMING_SLACK * 2)
+
+    monitor = StatusMonitor(manager, interval=0.01, sink=wedged_sink)
+    monitor.start()
+    try:
+        time.sleep(0.05)
+        assert monitor.stop(timeout=0.05) is False, "a timed-out join reported success"
+        assert monitor._thread is not None, "the live thread was abandoned"
+    finally:
+        release.set()
+        # Still joinable, which is the point of keeping the reference.
+        assert monitor.stop(timeout=TIMING_SLACK * 2) is True
+    assert not _monitor_threads()
+
+
+def test_monitor_stop_returns_true_when_never_started(
+    make_items: Callable[[int], list[Item]],
+) -> None:
+    """A monitor that never ran counts as stopped."""
+    manager = DataTransferManager(
+        SourceContainer(make_items(5)), DestinationContainer(), poll_interval=POLL
+    )
+    monitor = StatusMonitor(manager, sink=lambda _: None)
+    assert monitor.stop(timeout=TIMING_SLACK) is True
+
+
+def test_format_status_never_draws_a_non_empty_queue_as_empty() -> None:
+    """A small fill on a scaled bar still shows at least one mark."""
+    bar = bar_of(format_status(make_status(queue_size=4, capacity=1000)))
+    assert bar.startswith("#"), "a non-empty queue rendered as completely empty"
+    assert len(bar) == MAX_BAR_WIDTH
+    # An actually empty queue is still drawn empty.
+    assert bar_of(format_status(make_status(queue_size=0, capacity=1000))) == (
+        "." * MAX_BAR_WIDTH
+    )

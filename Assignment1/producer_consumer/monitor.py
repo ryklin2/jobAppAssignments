@@ -30,6 +30,10 @@ def format_status(status: QueueStatus) -> str:
     # floating-point rounding.
     filled = (width * status.queue_size) // status.capacity if status.capacity else 0
     filled = max(0, min(width, filled))
+    if filled == 0 and status.queue_size > 0:
+        # A scaled bar floors small fills to zero (4 of 100 slots -> 0), which
+        # would draw a non-empty queue as empty. Show at least one mark.
+        filled = 1
     bar = "#" * filled + "." * (width - filled)
     return (
         f"[{status.elapsed_seconds:6.2f}s] "
@@ -77,30 +81,51 @@ class StatusMonitor:
         self._sink = sink
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        # Separate from `_thread`, which stop() may clear: a monitor is
+        # single use, because its stop Event has already been set and a
+        # Python thread cannot be restarted.
+        self._started = False
 
     def start(self) -> None:
         """Start the monitor thread (non-daemon, named ``status-monitor``).
 
+        Single use: a monitor that has been stopped cannot be restarted.
+
         Raises:
-            RuntimeError: If the monitor was already started.
+            RuntimeError: If the monitor was already started, whether or not
+                it has since been stopped. Restarting silently would hand
+                back a monitor whose stop Event is already set, which would
+                emit one line and exit.
         """
-        if self._thread is not None:
+        if self._started:
             raise RuntimeError("the monitor has already been started")
+        self._started = True
         self._thread = threading.Thread(
             target=self._run, name="status-monitor", daemon=False
         )
         self._thread.start()
 
-    def stop(self, timeout: float | None = 2.0) -> None:
+    def stop(self, timeout: float | None = 2.0) -> bool:
         """Signal the thread to stop and join it. Idempotent.
 
         The thread emits one final status line on its way out, so the last
         line printed always shows the finished state.
+
+        Returns:
+            True if the monitor thread has exited (or never started). False
+            if it is still running at the timeout, in which case the thread
+            reference is kept so a later ``stop()`` can join it again rather
+            than abandoning a live non-daemon thread.
         """
         self._stop_event.set()
-        if self._thread is not None:
-            self._thread.join(timeout)
-            self._thread = None
+        if self._thread is None:
+            return True
+        self._thread.join(timeout)
+        if self._thread.is_alive():
+            # Still running: keep the reference so it stays joinable.
+            return False
+        self._thread = None
+        return True
 
     def __enter__(self) -> StatusMonitor:
         """Start the monitor and return it."""

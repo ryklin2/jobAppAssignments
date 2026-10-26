@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import queue
 import threading
 import time
@@ -11,6 +12,7 @@ from types import TracebackType
 from producer_consumer.consumer import Consumer
 from producer_consumer.containers import DestinationContainer, SourceContainer
 from producer_consumer.exceptions import (
+    TransferError,
     TransferFailedError,
     TransferStateError,
     TransferTimeoutError,
@@ -139,6 +141,10 @@ class DataTransferManager:
         # workers only ever put, the controlling thread only ever gets, and
         # no extra lock of ours is involved.
         self._failures: queue.Queue[WorkerFailure] = queue.Queue()
+        # Failures taken off the channel are kept here, because draining the
+        # channel is destructive and the outcome must stay reportable to
+        # every later wait_for_completion()/stop_transfer() call.
+        self._recorded_failures: list[WorkerFailure] = []
 
         self._producers = [
             Producer(
@@ -178,8 +184,20 @@ class DataTransferManager:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        """Stop the transfer if it is still running. Never suppresses errors."""
-        self.stop_transfer()
+        """Stop the transfer if it is still running. Never suppresses errors.
+
+        Returns ``None`` always, so the ``with`` body's exception propagates.
+        If the body is already failing, a stop that times out here is
+        swallowed rather than allowed to replace the original exception,
+        which would hide the real cause. With no exception in flight a
+        teardown timeout is reported normally.
+        """
+        if exc is None:
+            self.stop_transfer()
+            return
+        # The body's exception is the interesting one; keep it.
+        with contextlib.suppress(TransferError):
+            self.stop_transfer()
 
     # ------------------------------------------------------------------- queries
 
@@ -229,6 +247,8 @@ class DataTransferManager:
         Raises:
             TransferStateError: If the manager is not in CREATED (already
                 started, finished, or stopped).
+            RuntimeError: If the OS refuses to start a thread. The transfer
+                is left in FAILED with every started worker stopped.
         """
         with self._lock:
             if self._state is not TransferState.CREATED:
@@ -255,12 +275,30 @@ class DataTransferManager:
                 )
                 for consumer in self._consumers
             ]
-            threads = [*self._producer_threads, *self._consumer_threads]
 
-        # Started outside the lock: a worker's first action may take the
-        # queue lock, and we keep the manager lock hold time short.
-        for thread in threads:
-            thread.start()
+            # Started while the lock is held, so no other thread can observe
+            # RUNNING with threads that have not been started yet and try to
+            # join one (`join()` before `start()` raises RuntimeError and
+            # would wedge the manager). This cannot deadlock: a worker's
+            # first action may block on this lock, but start_transfer never
+            # waits on a worker.
+            started = 0
+            try:
+                for thread in (*self._producer_threads, *self._consumer_threads):
+                    thread.start()
+                    started += 1
+            except RuntimeError:
+                # Thread creation failed partway. Only the producers that
+                # actually started will count down, so correct the count
+                # before anything waits on it, and abandon the transfer.
+                self._active_producers = min(
+                    started, len(self._producer_threads)
+                )
+                self._state = TransferState.FAILED
+                self._end_time = time.monotonic()
+                self._stop_event.set()
+                self._queue.close()
+                raise
 
     def wait_for_completion(self, timeout: float | None = None) -> TransferResult:
         """Block until every worker has finished, then return the result.
@@ -297,7 +335,7 @@ class DataTransferManager:
                 f"workers still running after {timeout}s; call stop_transfer()"
             )
 
-        failures = self._drain_failures()
+        failures = self._collect_failures()
         with self._lock:
             if self._end_time is None:
                 self._end_time = time.monotonic()
@@ -324,6 +362,10 @@ class DataTransferManager:
         Items still queued when the stop happens are not delivered;
         ``TransferResult.undelivered`` reports them.
 
+        If a worker had already crashed, the final state is FAILED rather
+        than STOPPED; the failure stays available to
+        ``wait_for_completion()``, which re-raises it.
+
         Raises:
             TransferTimeoutError: If workers are still alive after
                 ``timeout`` seconds.
@@ -346,11 +388,17 @@ class DataTransferManager:
         deadline = None if timeout is None else time.monotonic() + timeout
         joined = self._join_workers(deadline)
 
+        # Collected, not discarded: a worker that crashed is the real reason
+        # the transfer ended, so the outcome is FAILED rather than STOPPED
+        # and wait_for_completion() can still re-raise it.
+        failures = self._collect_failures()
         with self._lock:
             if self._end_time is None:
                 self._end_time = time.monotonic()
             if self._state is TransferState.RUNNING:
-                self._state = TransferState.STOPPED
+                self._state = (
+                    TransferState.FAILED if failures else TransferState.STOPPED
+                )
             result = self._build_result_locked()
 
         if not joined:
@@ -409,7 +457,8 @@ class DataTransferManager:
         """Join producers, then consumers, against one shared deadline.
 
         Skips ``threading.current_thread()`` (joining yourself raises
-        ``RuntimeError``).
+        ``RuntimeError``) and any thread that was never started (joining
+        one of those raises ``RuntimeError`` too).
 
         Returns:
             True if every worker thread has exited.
@@ -421,6 +470,11 @@ class DataTransferManager:
         for thread in (*self._producer_threads, *self._consumer_threads):
             if thread is current:
                 continue
+            if thread.ident is None:
+                # Never started, so there is nothing to wait for. Joining it
+                # would raise RuntimeError; this happens when start_transfer
+                # rolled back after the OS refused a thread.
+                continue
             if deadline is None:
                 thread.join()
             else:
@@ -430,17 +484,24 @@ class DataTransferManager:
                 all_done = False
         return all_done
 
-    def _drain_failures(self) -> list[WorkerFailure]:
-        """Empty the error channel with ``get_nowait()`` until ``queue.Empty``.
+    def _collect_failures(self) -> list[WorkerFailure]:
+        """Return every worker failure seen so far, newly arrived ones included.
 
-        Do not loop on ``Queue.empty()``: it is only a hint and can race.
+        The channel is emptied with ``get_nowait()`` until ``queue.Empty``
+        (never looping on ``Queue.empty()``, which is only a hint and can
+        race), but the results are *kept*. Draining alone would make the
+        outcome a one-shot read, so a second ``wait_for_completion()`` would
+        report success for a transfer that actually failed.
         """
-        failures: list[WorkerFailure] = []
         while True:
             try:
-                failures.append(self._failures.get_nowait())
+                failure = self._failures.get_nowait()
             except queue.Empty:
-                return failures
+                break
+            with self._lock:
+                self._recorded_failures.append(failure)
+        with self._lock:
+            return list(self._recorded_failures)
 
     def _build_result(self) -> TransferResult:
         """Assemble a ``TransferResult`` from the current state and counts."""
