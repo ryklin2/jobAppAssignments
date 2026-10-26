@@ -200,7 +200,7 @@ is on a condition whose predicate includes `closed`.
 | `DestinationContainer` | Fully thread-safe. `add()` is safe from any number of consumers; readers take the same lock and return immutable snapshots, so no caller sees the list mid-update. |
 | `Producer` / `Consumer` | One instance must be run by one thread at a time; they hold no lock of their own. Any number of instances may share one source, queue and destination. They own no thread, which is what lets a test call `run()` directly. |
 | `DataTransferManager` | Public methods are safe from any thread **except** its own workers, which must not call them (`wait_for_completion` and `stop_transfer` join the workers, and a thread cannot join itself; `_join_workers` skips the current thread defensively). Single use: Python threads cannot be restarted, so a finished manager refuses `start_transfer()`. |
-| `StatusMonitor` | `start()` and `stop()` are meant for one controlling thread (normally main); `stop()` is idempotent and returns whether the thread actually exited, keeping it joinable if not. Single use, like the manager: `start()` raises once the monitor has been started, including after a stop, since its stop Event is set and a thread cannot be restarted. The monitor thread only reads through `manager.get_queue_status()`, so it adds no new sharing. It is the only thread that prints, which is why status lines never interleave. |
+| `StatusMonitor` | `start()` and `stop()` are meant for one controlling thread (normally main); `stop()` is idempotent, and if its join times out it keeps the thread reference so a later `stop()` can join it rather than abandoning a live non-daemon thread (`is_running()` reports that state). Single use, like the manager: `start()` raises once the monitor has been started, including after a stop, since its stop Event is set and a thread cannot be restarted. The monitor thread only reads through `manager.get_queue_status()`, so it adds no new sharing. It is the only thread that prints, which is why status lines never interleave. |
 
 ## 9. Known limitations
 
@@ -228,11 +228,11 @@ is on a condition whose predicate includes `closed`.
 - **Unbounded error channel.** The `queue.Queue` of failures has no maximum
   size. With one failure per worker thread that is bounded in practice by
   the worker count.
-- **A wedged thread cannot be joined away.** `stop_transfer()` and
-  `StatusMonitor.stop()` both report a thread they could not join (by
-  exception and by return value respectively) and keep it joinable, rather
-  than abandoning a live non-daemon thread that would stop the process from
-  exiting. Neither can force it to end.
+- **A wedged thread cannot be joined away.** `stop_transfer()` raises
+  `TransferTimeoutError` and `StatusMonitor.stop()` leaves `is_running()`
+  true; both keep the thread joinable rather than abandoning a live
+  non-daemon thread that would stop the process from exiting. Neither can
+  force it to end.
 - **Thread startup is not transactional.** If the OS refuses a thread partway
   through `start_transfer()`, the manager corrects its active-producer count,
   closes the queue, marks the transfer `FAILED` and re-raises, rather than

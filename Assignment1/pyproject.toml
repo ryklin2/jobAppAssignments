@@ -31,3 +31,9 @@ known-first-party = ["producer_consumer"]
 [tool.coverage.run]
 source = ["producer_consumer"]
 branch = true
+
+[tool.coverage.report]
+# The suite covers every statement and every branch; fail rather than let
+# that slip quietly.
+fail_under = 100
+show_missing = true

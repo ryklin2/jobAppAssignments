@@ -57,6 +57,8 @@ python -m ruff check .                              # lint
 
 ```text
 producer_consumer/
+    __init__.py        public API re-exports
+    __main__.py        enables `python -m producer_consumer`
     item.py            Item: immutable unit of data
     shared_queue.py    SharedQueue: bounded queue (Lock + two Conditions)
     containers.py      SourceContainer / DestinationContainer
@@ -68,7 +70,7 @@ producer_consumer/
     exceptions.py      exception hierarchy
     main.py            demo entry point
 docs/SYNCHRONIZATION.md  synchronization strategy and thread-safety guarantees
-tests/                   pytest suite (153 tests)
+tests/                   pytest suite (159 tests)
 ```
 
 ## Sample output

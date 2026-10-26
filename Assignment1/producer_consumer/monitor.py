@@ -105,27 +105,32 @@ class StatusMonitor:
         )
         self._thread.start()
 
-    def stop(self, timeout: float | None = 2.0) -> bool:
+    def stop(self, timeout: float | None = 2.0) -> None:
         """Signal the thread to stop and join it. Idempotent.
 
         The thread emits one final status line on its way out, so the last
         line printed always shows the finished state.
 
-        Returns:
-            True if the monitor thread has exited (or never started). False
-            if it is still running at the timeout, in which case the thread
-            reference is kept so a later ``stop()`` can join it again rather
-            than abandoning a live non-daemon thread.
+        If the join times out, the thread reference is kept so a later
+        ``stop()`` can join it again. Dropping it would abandon a live
+        non-daemon thread, which would keep the process from exiting while
+        this method reported success. Use ``is_running()`` to check.
         """
         self._stop_event.set()
         if self._thread is None:
-            return True
+            return
         self._thread.join(timeout)
-        if self._thread.is_alive():
-            # Still running: keep the reference so it stays joinable.
-            return False
-        self._thread = None
-        return True
+        if not self._thread.is_alive():
+            self._thread = None
+
+    def is_running(self) -> bool:
+        """Whether the monitor thread is still alive.
+
+        False before ``start()`` and after a ``stop()`` that joined
+        successfully; True if a ``stop()`` timed out and the thread is still
+        finishing.
+        """
+        return self._thread is not None and self._thread.is_alive()
 
     def __enter__(self) -> StatusMonitor:
         """Start the monitor and return it."""

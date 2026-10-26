@@ -1,5 +1,8 @@
 """Smoke tests for the Assignment 1 demo."""
 
+import importlib
+import runpy
+import sys
 import threading
 
 import pytest
@@ -306,3 +309,37 @@ def test_main_reports_a_teardown_failure_after_a_clean_run(
     captured = capsys.readouterr()
     assert "Delivered:   20/20" in captured.out
     assert "teardown stop timed out" in captured.err
+
+
+def test_module_entry_point_runs_the_demo(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`python -m producer_consumer` runs the demo and exits with run()'s code.
+
+    Executes __main__.py with __name__ == "__main__", which is the only way
+    that guard clause is reached.
+    """
+    monkeypatch.setattr(sys, "argv", ["producer_consumer", *FAST_DEMO])
+    # Dropped from the cache first so runpy executes the file rather than
+    # warning that it is already imported (which it would if an earlier
+    # test imported it).
+    sys.modules.pop("producer_consumer.__main__", None)
+    with pytest.raises(SystemExit) as caught:
+        runpy.run_module("producer_consumer", run_name="__main__")
+
+    assert caught.value.code == EXIT_OK
+    assert "Delivered:   20/20" in capsys.readouterr().out
+
+
+def test_main_module_does_nothing_when_merely_imported() -> None:
+    """Importing __main__ must not start a transfer.
+
+    The guard clause is only true under `python -m`; this exercises the
+    other side of it, so importing the module anywhere is side-effect free.
+    """
+    sys.modules.pop("producer_consumer.__main__", None)
+    module = importlib.import_module("producer_consumer.__main__")
+
+    # It exposes the entry point but did not call it: no threads, no output.
+    assert module.main is main
+    assert not _worker_threads()

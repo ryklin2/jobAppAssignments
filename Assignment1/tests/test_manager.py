@@ -701,3 +701,119 @@ def test_joining_skips_threads_that_were_never_started(
 
     result = manager.stop_transfer(timeout=1)
     assert result.state is TransferState.STOPPED
+
+
+def test_second_wait_on_a_clean_run_returns_the_same_result(
+    make_items: Callable[[int], list[Item]],
+) -> None:
+    """wait_for_completion() is idempotent: it does not re-time or re-label a
+    finished transfer.
+
+    The second call finds no failures and a state that is no longer RUNNING,
+    so it must leave COMPLETED and the recorded elapsed time untouched.
+    """
+    manager = DataTransferManager(
+        SourceContainer(make_items(30)), DestinationContainer(), poll_interval=POLL
+    )
+    manager.start_transfer()
+    first = manager.wait_for_completion(timeout=TIMING_SLACK)
+    second = manager.wait_for_completion(timeout=TIMING_SLACK)
+
+    assert first == second, "a repeat wait changed the recorded outcome"
+    assert second.state is TransferState.COMPLETED
+    assert manager.state is TransferState.COMPLETED
+
+
+def test_stop_does_not_overwrite_an_already_recorded_end_time(
+    make_items: Callable[[int], list[Item]],
+) -> None:
+    """stop_transfer() keeps the first recorded end time rather than re-stamping it.
+
+    Reached when a stop lands after something else has already timed the
+    transfer; the elapsed figure reported to the user must not move.
+    """
+    manager = DataTransferManager(
+        SourceContainer(make_items(20)), DestinationContainer(), poll_interval=POLL
+    )
+    manager.start_transfer()
+    with manager._lock:
+        manager._end_time = manager._start_time + 1.5  # type: ignore[operator]
+
+    result = manager.stop_transfer(timeout=TIMING_SLACK)
+    assert result.elapsed_seconds == pytest.approx(1.5)
+    assert not worker_threads()
+
+
+def test_stop_keeps_a_completion_that_lands_during_the_stop(
+    make_items: Callable[[int], list[Item]],
+) -> None:
+    """A transfer that finishes while a stop is in flight stays COMPLETED.
+
+    stop_transfer() checks the state again after joining, because another
+    thread may have completed the transfer in between. Overwriting it with
+    STOPPED would report a successful run as aborted. The race is forced
+    deterministically by finishing the transfer inside the join.
+    """
+
+    class CompletesDuringJoin(DataTransferManager):
+        def _join_workers(self, deadline: float | None) -> bool:
+            joined = super()._join_workers(deadline)
+            # Stand in for another thread's wait_for_completion() landing
+            # between the state check at the top of stop_transfer and the
+            # one after the join.
+            with self._lock:
+                if self._state is TransferState.RUNNING:
+                    self._state = TransferState.COMPLETED
+            return joined
+
+    manager = CompletesDuringJoin(
+        SourceContainer(make_items(20)), DestinationContainer(), poll_interval=POLL
+    )
+    manager.start_transfer()
+    result = manager.stop_transfer(timeout=TIMING_SLACK)
+
+    assert result.state is TransferState.COMPLETED, "a stop overwrote a completion"
+    assert manager.state is TransferState.COMPLETED
+    assert not worker_threads()
+
+
+def test_a_worker_may_stop_the_transfer_without_joining_itself(
+    make_items: Callable[[int], list[Item]],
+) -> None:
+    """stop_transfer() from inside a worker skips joining that worker.
+
+    `Thread.join()` on the current thread raises RuntimeError, so the
+    manager skips `threading.current_thread()`. Without that guard a worker
+    that aborted the transfer would crash instead of stopping it.
+    """
+    captured: list[BaseException] = []
+    box: dict[str, DataTransferManager] = {}
+
+    class StopFromConsumer(DestinationContainer):
+        def add(self, item: Item) -> None:
+            super().add(item)
+            if self.count == 3:
+                try:
+                    # Called on the consumer thread: it must not try to join
+                    # itself.
+                    box["manager"].stop_transfer(timeout=TIMING_SLACK)
+                except BaseException as error:  # noqa: BLE001 - recorded below
+                    captured.append(error)
+
+    manager = DataTransferManager(
+        SourceContainer(make_items(200)),
+        StopFromConsumer(),
+        num_producers=1,
+        num_consumers=1,
+        poll_interval=POLL,
+    )
+    box["manager"] = manager
+    manager.start_transfer()
+    result = manager.stop_transfer(timeout=TIMING_SLACK * 2)
+
+    assert not captured, f"the worker's stop raised: {captured!r}"
+    assert result.state is TransferState.STOPPED
+    deadline = time.monotonic() + TIMING_SLACK * 2
+    while worker_threads() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not worker_threads()

@@ -223,24 +223,27 @@ def test_monitor_stop_reports_a_thread_it_could_not_join(
     monitor.start()
     try:
         time.sleep(0.05)
-        assert monitor.stop(timeout=0.05) is False, "a timed-out join reported success"
+        monitor.stop(timeout=0.05)
+        assert monitor.is_running(), "a timed-out join reported the thread as gone"
         assert monitor._thread is not None, "the live thread was abandoned"
     finally:
         release.set()
         # Still joinable, which is the point of keeping the reference.
-        assert monitor.stop(timeout=TIMING_SLACK * 2) is True
+        monitor.stop(timeout=TIMING_SLACK * 2)
+    assert not monitor.is_running()
     assert not _monitor_threads()
 
 
-def test_monitor_stop_returns_true_when_never_started(
+def test_monitor_stop_without_start_leaves_nothing_running(
     make_items: Callable[[int], list[Item]],
 ) -> None:
-    """A monitor that never ran counts as stopped."""
+    """A monitor that never ran reports nothing running and stops cleanly."""
     manager = DataTransferManager(
         SourceContainer(make_items(5)), DestinationContainer(), poll_interval=POLL
     )
     monitor = StatusMonitor(manager, sink=lambda _: None)
-    assert monitor.stop(timeout=TIMING_SLACK) is True
+    monitor.stop(timeout=TIMING_SLACK)
+    assert not monitor.is_running()
 
 
 def test_format_status_never_draws_a_non_empty_queue_as_empty() -> None:
