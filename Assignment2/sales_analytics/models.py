@@ -12,9 +12,13 @@ from __future__ import annotations
 # ``import datetime as dt`` rather than ``from datetime import date``: the
 # spec requires a field named ``date``, which would shadow the type.
 import datetime as dt
+import statistics
 from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import Decimal
+
+_TEXT_FIELDS = ("transaction_id", "region", "salesperson", "product_category")
+"""Fields that must be non-empty text after stripping."""
 
 MONEY_TOLERANCE = Decimal("0.01")
 """Largest allowed gap between ``total_amount`` and ``quantity * unit_price``."""
@@ -61,9 +65,50 @@ class SaleRecord:
                 <= 0, or ``total_amount`` differs from
                 ``quantity * unit_price`` by more than ``MONEY_TOLERANCE``.
         """
-        # TODO: implement the checks listed above. Leaving this as a no-op
-        # (rather than raising NotImplementedError) keeps test fixtures that
-        # build records working while the skeleton is filled in.
+        for field in _TEXT_FIELDS:
+            value = getattr(self, field)
+            if not isinstance(value, str):
+                raise TypeError(f"{field} must be a str, got {type(value).__name__}")
+            if not value.strip():
+                raise ValueError(f"{field} must not be blank")
+
+        # bool is a subclass of int, and datetime a subclass of date, so both
+        # need an explicit rejection before the isinstance check passes them.
+        if not isinstance(self.date, dt.date) or isinstance(self.date, dt.datetime):
+            raise TypeError(
+                f"date must be a datetime.date, got {type(self.date).__name__}"
+            )
+
+        if isinstance(self.quantity, bool) or not isinstance(self.quantity, int):
+            raise TypeError(
+                f"quantity must be an int, got {type(self.quantity).__name__}"
+            )
+        if self.quantity < 1:
+            raise ValueError(f"quantity must be at least 1, got {self.quantity}")
+
+        for field in ("unit_price", "total_amount"):
+            value = getattr(self, field)
+            # A float is rejected rather than converted: Decimal(0.1) carries
+            # the float's error, so accepting one would silently lose cents.
+            if not isinstance(value, Decimal):
+                raise TypeError(
+                    f"{field} must be a Decimal, got {type(value).__name__}"
+                )
+            if not value.is_finite():
+                raise ValueError(f"{field} must be finite, got {value}")
+
+        if self.unit_price <= 0:
+            raise ValueError(
+                f"unit_price must be greater than 0, got {self.unit_price}"
+            )
+
+        expected = self.quantity * self.unit_price
+        if abs(self.total_amount - expected) > MONEY_TOLERANCE:
+            raise ValueError(
+                f"total_amount {self.total_amount} does not equal "
+                f"quantity * unit_price ({self.quantity} * {self.unit_price} "
+                f"= {expected})"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,7 +173,28 @@ class SalesStats:
         Materialize ``amounts`` to a tuple first: it may be a one-shot
         generator. Never raises for empty or single-value input.
         """
-        raise NotImplementedError
+        values = tuple(amounts)
+        if not values:
+            return cls(
+                count=0,
+                total=Decimal("0"),
+                mean=None,
+                median=None,
+                minimum=None,
+                maximum=None,
+                stdev=None,
+            )
+        return cls(
+            count=len(values),
+            total=sum(values, Decimal("0")),
+            mean=statistics.mean(values),
+            median=statistics.median(values),
+            minimum=min(values),
+            maximum=max(values),
+            # statistics.stdev raises StatisticsError for n < 2; a single
+            # sale has no spread to report, so None says so instead.
+            stdev=statistics.stdev(values) if len(values) > 1 else None,
+        )
 
 
 @dataclass(frozen=True, slots=True)
